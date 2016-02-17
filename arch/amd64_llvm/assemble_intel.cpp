@@ -98,7 +98,7 @@ size_t assemble(
 		llvm::TargetRegistry::lookupTarget(LLVM_HOST_TRIPLE, error);
 	if (!target) {
 		std::cerr << "Could not find target: " << error << std::endl;
-		exit(EXIT_FAILURE);
+		abort();
 	}
 
 	unique_ptr<llvm::MCSubtargetInfo> subtarget(

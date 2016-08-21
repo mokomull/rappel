@@ -177,6 +177,11 @@ size_t assemble(
 	streamer->Finish();
 	const llvm::StringRef buffer = stream.str();
 
+	for (unsigned char c : buffer) {
+		std::cout << std::setw(2) << std::setfill('0') << std::hex << (int)c;
+	}
+	std::cout << std::endl;
+
 	if (buffer.substr(0, 4) != llvm::ELF::ElfMagic) {
 		std::cerr << "I should have gotten an ELF file\n";
 		abort();

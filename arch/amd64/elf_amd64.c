@@ -67,12 +67,12 @@ const size_t gen_elf_amd64(
 	ehdr->e_flags = 0;
 	ehdr->e_ehsize = sizeof(Elf64_Ehdr);
 	ehdr->e_phentsize = sizeof(Elf64_Phdr);
-	ehdr->e_phnum = 1;
+	ehdr->e_phnum = 3;
 	ehdr->e_shentsize = 0;
 	ehdr->e_shnum = 0;
 	ehdr->e_shstrndx = 0;
 
-	Elf64_Phdr *const phdr = (Elf64_Phdr *) ((uint8_t *) e + sizeof(Elf64_Ehdr));
+	Elf64_Phdr *phdr = (Elf64_Phdr *) ((uint8_t *) e + sizeof(Elf64_Ehdr));
 
 	phdr->p_type = PT_LOAD;
 	phdr->p_flags = PF_X | PF_R;
@@ -82,6 +82,27 @@ const size_t gen_elf_amd64(
 	phdr->p_filesz = code_sz + pg_align_dist; 
 	phdr->p_memsz = code_sz + pg_align_dist;
 	phdr->p_align = 0x4;
+
+	phdr++;
+	phdr->p_type = PT_LOAD;
+	phdr->p_flags = PF_R | PF_W;
+	phdr->p_offset = 0;
+	phdr->p_vaddr = 0x1000000;
+	phdr->p_paddr = 0;
+	phdr->p_filesz = 0;
+	phdr->p_memsz = PAGE_SIZE;
+	phdr->p_align = 0x1;
+
+	// So that read-implies-exec is false:
+	phdr++;
+	phdr->p_type = PT_GNU_STACK;
+	phdr->p_flags = PF_R | PF_W;
+	phdr->p_offset = 0;
+	phdr->p_vaddr = 0x0;
+	phdr->p_paddr = 0;
+	phdr->p_filesz = 0;
+	phdr->p_memsz = 0x0;
+	phdr->p_align = 0x1;
 
 	uint8_t *const data = (uint8_t *) e + PAGE_SIZE + pg_align_dist;
 	memcpy(data, code, code_sz);

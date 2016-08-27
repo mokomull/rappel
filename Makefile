@@ -24,8 +24,8 @@ CFLAGS_x86   = -Dassemble=assemble_intel \
 CFLAGS_armv7 = -Dassemble=assemble_arm \
 		-DREGFMT=REGFMT32 -DARCH_INIT_PROC_INFO=ARM_INIT_PROC_INFO
 
-CFLAGS = -std=c11 -Wall -pedantic -Wno-gnu-empty-initializer $(CFLAGS_ARCH) $(CFLAGS_$(ARCH)) -O2 -fPIE -D_FORTIFY_SOURCE=2
-CXXFLAGS = $(CFLAGS) -std=gnu++11 $(shell $(LLVM_CONFIG) --cxxflags) -O0
+CFLAGS = -std=c11 -Wall -pedantic -Wno-gnu-empty-initializer $(CFLAGS_ARCH) $(CFLAGS_$(ARCH)) -O2 -fPIE -D_FORTIFY_SOURCE=2 -O0 -ggdb
+CXXFLAGS = $(CFLAGS) -std=gnu++11 $(shell $(LLVM_CONFIG) --cxxflags) -O0 -ggdb
 LLVM_CONFIG = llvm-config-5.0
 LDFLAGS_amd64_llvm = $(shell $(LLVM_CONFIG) --ldflags --libs --system-libs engine)
 INC = -Iinclude/ -Iarch/$(ARCH)/include

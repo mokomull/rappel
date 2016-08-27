@@ -1,11 +1,14 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <linux/kvm.h>
+#include <sys/ioctl.h>
 
 #include <histedit.h>
 
@@ -106,32 +109,59 @@ bail:
 	free(dupline);
 }
 
-static const
-pid_t _gen_child() {
-	uint8_t buf[PAGE_SIZE];
-	mem_assign(buf, PAGE_SIZE, TRAP, TRAP_SZ);
+static
+int _gen_vm() {
+	const int kvm_fd = open("/dev/kvm", O_RDWR);
+	REQUIRE(kvm_fd > 0);
 
-	uint8_t *elf;
-	const size_t elf_sz = gen_elf(&elf, options.start, (uint8_t *)buf, PAGE_SIZE);
+	const int api_version = ioctl(kvm_fd, KVM_GET_API_VERSION, 0);
+	REQUIRE(api_version == 12); /* specified in Documentation/virtual/kvm/api.txt */
 
-	const int exe_fd = write_exe(elf, elf_sz, options.savefile);
+	const int vm_fd = ioctl(kvm_fd, KVM_CREATE_VM, 0);
+	REQUIRE(vm_fd > 0);
 
-	free(elf);
+	const int vcpu_fd = ioctl(vm_fd, KVM_CREATE_VCPU, 0);
+	REQUIRE(vcpu_fd > 0);
 
-	const pid_t tracee = fork();
+	struct kvm_regs regs = {
+		.rip = 0x400000, /* TODO: options.start */
+		.rsp = 0, /* TODO: anonymous memory */
+		.rflags = 0x2, /* bit 1 is always 1 per Intel docs */
+	};
+	REQUIRE(ioctl(vcpu_fd, KVM_SET_REGS, &regs) == 0);
 
-	if (tracee < 0) {
-		perror("fork");
-		exit(EXIT_FAILURE);
-	} else if (tracee == 0) {
-		ptrace_child(exe_fd);
-		abort();
-	}
+	struct kvm_sregs sregs = {
+		.efer = 0x500, /* IA32e enable, IA32e active */
+		.cr0 = 0x80000011, /* PG, ~WP, ET, PE */
+		.cr3 = 0x0, /* TODO: create page tables */
+		.cr4 = 0x20, /* PAE */
+		.cs = {
+			.base = 0,
+			.limit = 0xffffffff,
+			.s = 1,
+			.type = 0xb, /* execute/read, accessed */
+			.present = 1,
+			.dpl = 0,
+			.db = 0,
+			.g = 1,
+			.l = 1,
+		},
+		.ds = {
+			.base = 0,
+			.limit = 0xffffffff,
+			.s = 1,
+			.type = 0x3, /* data read/write, accessed */
+			.present = 1,
+			.dpl = 0,
+			.db = 1,
+			.g = 1,
+			.l = 1,
+		},
+	};
+	sregs.ss = sregs.ds;
+	REQUIRE(ioctl(vcpu_fd, KVM_SET_SREGS, &sregs) == 0);
 
-	// Parent
-	close(exe_fd);
-
-	return tracee;
+	return vcpu_fd;
 }
 
 void interact(
@@ -152,7 +182,10 @@ void interact(
 
 	el_set(el, EL_HIST, history, hist);
 
-	const pid_t child_pid = _gen_child();
+	const pid_t child_pid = 0;
+	const int vcpu_fd = _gen_vm();
+
+	ioctl(vcpu_fd, KVM_RUN, 0);
 
 	verbose_printf("child process is %d\n", child_pid);
 

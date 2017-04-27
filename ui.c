@@ -165,7 +165,7 @@ int _gen_vm(void **guest_ram) {
 	/* map a scratch page (for executable code) to 0x400000 */
 	*guest_ram = mmap(0, 4096, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
 	REQUIRE(*guest_ram != MAP_FAILED);
-	memset(*guest_ram, 0xe4, 4096);
+	memset(*guest_ram, 0xe6, 4096);
 	struct kvm_userspace_memory_region kumr = {
 		.slot = 1,
 		.flags = 0,

@@ -199,6 +199,7 @@ int _gen_vm(void **guest_ram) {
 	kumr.flags = KVM_MEM_READONLY;
 	kumr.guest_phys_addr = 0x80000000;
 	kumr.userspace_addr = &page_tables;
+	kumr.memory_size = sizeof(page_tables);
 	REQUIRE(ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION, &kumr) == 0);
 
 	/* TODO: leaks kvm_fd, vm_fd */

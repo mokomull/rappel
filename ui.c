@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <linux/kvm.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 
 #include <histedit.h>
 
@@ -110,7 +111,7 @@ bail:
 }
 
 static
-int _gen_vm() {
+int _gen_vm(void **guest_ram) {
 	const int kvm_fd = open("/dev/kvm", O_RDWR);
 	REQUIRE(kvm_fd > 0);
 
@@ -125,7 +126,7 @@ int _gen_vm() {
 
 	struct kvm_regs regs = {
 		.rip = 0x400000, /* TODO: options.start */
-		.rsp = 0, /* TODO: anonymous memory */
+		.rsp = 0x401000, /* TODO: anonymous memory */
 		.rflags = 0x2, /* bit 1 is always 1 per Intel docs */
 	};
 	REQUIRE(ioctl(vcpu_fd, KVM_SET_REGS, &regs) == 0);
@@ -133,7 +134,7 @@ int _gen_vm() {
 	struct kvm_sregs sregs = {
 		.efer = 0x500, /* IA32e enable, IA32e active */
 		.cr0 = 0x80000011, /* PG, ~WP, ET, PE */
-		.cr3 = 0x0, /* TODO: create page tables */
+		.cr3 = 0x80000000,
 		.cr4 = 0x20, /* PAE */
 		.cs = {
 			.base = 0,
@@ -161,7 +162,85 @@ int _gen_vm() {
 	sregs.ss = sregs.ds;
 	REQUIRE(ioctl(vcpu_fd, KVM_SET_SREGS, &sregs) == 0);
 
+	/* map a scratch page (for executable code) to 0x400000 */
+	*guest_ram = mmap(0, 4096, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+	REQUIRE(*guest_ram != MAP_FAILED);
+	memset(*guest_ram, 0xe4, 4096);
+	struct kvm_userspace_memory_region kumr = {
+		.slot = 1,
+		.flags = 0,
+		.guest_phys_addr = 0x400000,
+		.memory_size = 4096,
+		.userspace_addr = *guest_ram,
+	};
+	REQUIRE(ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION, &kumr) == 0);
+
+	/* page tables can go at 0x80000000 in the guest */
+	static const uint64_t __attribute__((aligned(4096))) page_tables[][512] = {
+		/* PML4 */
+		{
+			[(0x400000ULL >> 39) & 0x1ff] = 0x80001000 | 0x27,
+		},
+		/* PDPT */
+		{
+			[(0x400000ULL >> 30) & 0x1ff] = 0x80002000 | 0x27,
+		},
+		/* PD */
+		{
+			[(0x400000ULL >> 21) & 0x1ff] = 0x80003000 | 0x27,
+		},
+		/* PT */
+		{
+			[(0x400000ULL >> 12) & 0x1ff] = 0x400000 | 0x27,
+		},
+	};
+	/* TODO: this apparently page-faults (and then triple-faults) with cr2 = 0x400000 */
+	kumr.slot = 2;
+	kumr.flags = KVM_MEM_READONLY;
+	kumr.guest_phys_addr = 0x80000000;
+	kumr.userspace_addr = &page_tables;
+	REQUIRE(ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION, &kumr) == 0);
+
+	/* TODO: leaks kvm_fd, vm_fd */
 	return vcpu_fd;
+}
+
+void _dump_seg(struct kvm_segment segment) {
+	printf("base = %08x, limit = %08x, selector = %04x, type = %02x, present = %d\n"
+		"    dpl = %d, db = %d, s = %d, l = %d, g = %d, avl = %d\n",
+		segment.base, segment.limit, segment.selector, segment.type, segment.present,
+		segment.dpl, segment.db, segment.s, segment.l, segment.g, segment.avl
+	);
+}
+
+void _vcpu_dump_regs(int vcpu_fd) {
+	struct kvm_regs regs;
+	struct kvm_sregs sregs;
+
+	REQUIRE(ioctl(vcpu_fd, KVM_GET_REGS, &regs) == 0);
+	REQUIRE(ioctl(vcpu_fd, KVM_GET_SREGS, &sregs) == 0);
+
+	printf(
+		"rax = %016x, rbx = %016x, rcx = %016x, rdx = %016x\n"
+		"rsi = %016x, rdi = %016x, rsp = %016x, rbp = %016x\n"
+		"r8  = %016x, r9  = %016x, r10 = %016x, r11 = %016x\n"
+		"r12 = %016x, r13 = %016x, r14 = %016x, r15 = %016x\n"
+		"rip = %016x, rflags = %016x\n",
+		regs.rax, regs.rbx, regs.rcx, regs.rdx,
+		regs.rsi, regs.rdi, regs.rsp, regs.rbp,
+		regs.r8,  regs.r9,  regs.r10, regs.r11,
+		regs.r12, regs.r13, regs.r14, regs.r15,
+		regs.rip, regs.rflags
+	);
+
+	printf("cs: ");
+	_dump_seg(sregs.cs);
+	printf("ds: ");
+	_dump_seg(sregs.ds);
+	printf("cr0 = %016x, cr2 = %016x, cr3 = %016x, cr4 = %016x, cr8 = %016x\n",
+		sregs.cr0, sregs.cr2, sregs.cr3, sregs.cr4, sregs.cr8);
+	printf("efer = %016x, apic_base = %016x\n",
+		sregs.efer, sregs.apic_base);
 }
 
 void interact(
@@ -183,11 +262,11 @@ void interact(
 	el_set(el, EL_HIST, history, hist);
 
 	const pid_t child_pid = 0;
-	const int vcpu_fd = _gen_vm();
+	void *guest_ram;
+	const int vcpu_fd = _gen_vm(&guest_ram);
 
 	ioctl(vcpu_fd, KVM_RUN, 0);
-
-	verbose_printf("child process is %d\n", child_pid);
+	_vcpu_dump_regs(vcpu_fd);
 
 	if (options.verbose) help();
 

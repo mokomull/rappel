@@ -269,6 +269,9 @@ void interact(
 	ioctl(vcpu_fd, KVM_RUN, 0);
 	_vcpu_dump_regs(vcpu_fd);
 
+	struct kvm_run *run = mmap(0, 4096, PROT_READ, MAP_SHARED, vcpu_fd, 0);
+	REQUIRE(run != MAP_FAILED);
+
 	if (options.verbose) help();
 
 	char buf[PAGE_SIZE];

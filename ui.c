@@ -206,44 +206,6 @@ int _gen_vm(void **guest_ram) {
 	return vcpu_fd;
 }
 
-void _dump_seg(struct kvm_segment segment) {
-	printf("base = %08x, limit = %08x, selector = %04x, type = %02x, present = %d\n"
-		"    dpl = %d, db = %d, s = %d, l = %d, g = %d, avl = %d\n",
-		segment.base, segment.limit, segment.selector, segment.type, segment.present,
-		segment.dpl, segment.db, segment.s, segment.l, segment.g, segment.avl
-	);
-}
-
-void _vcpu_dump_regs(int vcpu_fd) {
-	struct kvm_regs regs;
-	struct kvm_sregs sregs;
-
-	REQUIRE(ioctl(vcpu_fd, KVM_GET_REGS, &regs) == 0);
-	REQUIRE(ioctl(vcpu_fd, KVM_GET_SREGS, &sregs) == 0);
-
-	printf(
-		"rax = %016x, rbx = %016x, rcx = %016x, rdx = %016x\n"
-		"rsi = %016x, rdi = %016x, rsp = %016x, rbp = %016x\n"
-		"r8  = %016x, r9  = %016x, r10 = %016x, r11 = %016x\n"
-		"r12 = %016x, r13 = %016x, r14 = %016x, r15 = %016x\n"
-		"rip = %016x, rflags = %016x\n",
-		regs.rax, regs.rbx, regs.rcx, regs.rdx,
-		regs.rsi, regs.rdi, regs.rsp, regs.rbp,
-		regs.r8,  regs.r9,  regs.r10, regs.r11,
-		regs.r12, regs.r13, regs.r14, regs.r15,
-		regs.rip, regs.rflags
-	);
-
-	printf("cs: ");
-	_dump_seg(sregs.cs);
-	printf("ds: ");
-	_dump_seg(sregs.ds);
-	printf("cr0 = %016x, cr2 = %016x, cr3 = %016x, cr4 = %016x, cr8 = %016x\n",
-		sregs.cr0, sregs.cr2, sregs.cr3, sregs.cr4, sregs.cr8);
-	printf("efer = %016x, apic_base = %016x\n",
-		sregs.efer, sregs.apic_base);
-}
-
 void interact(
 		const char *const argv_0)
 {
@@ -266,9 +228,6 @@ void interact(
 	void *guest_ram;
 	const int vcpu_fd = _gen_vm(&guest_ram);
 
-	ioctl(vcpu_fd, KVM_RUN, 0);
-	_vcpu_dump_regs(vcpu_fd);
-
 	struct kvm_run *run = mmap(0, 4096, PROT_READ, MAP_SHARED, vcpu_fd, 0);
 	REQUIRE(run != MAP_FAILED);
 
@@ -281,10 +240,7 @@ void interact(
 	struct proc_info_t info = {};
 	ARCH_INIT_PROC_INFO(info);
 
-	ptrace_launch(child_pid);
-	ptrace_cont(child_pid, &info);
-	ptrace_reap(child_pid, &info);
-
+	ptrace_collect_regs(vcpu_fd, &info);
 	display(&info);
 
 	for (;;) {
@@ -375,15 +331,15 @@ void interact(
 				continue;
 			}
 
-			ptrace_write(child_pid, (void *)options.start, bytecode, bytecode_sz);
-			ptrace_reset(child_pid, options.start);
+			memcpy(guest_ram, bytecode, bytecode_sz);
+			((char*)guest_ram)[bytecode_sz] = 0xf4;
+			ptrace_reset(vcpu_fd, options.start);
 
-			ptrace_cont(child_pid, &info);
-
-			if (ptrace_reap(child_pid, &info)) {
-				child_died = 1;
-				break;
+			ioctl(vcpu_fd, KVM_RUN, 0);
+			if (run->exit_reason != KVM_EXIT_HLT) {
+				fprintf(stderr, "exited for reason %d, not HLT\n", run->exit_reason);
 			}
+			ptrace_collect_regs(vcpu_fd, &info);
 
 			display(&info);
 		}

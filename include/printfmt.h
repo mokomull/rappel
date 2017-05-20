@@ -8,7 +8,7 @@
 #define DUMPREG64(x, y, z) \
 	do {\
 		if (y->x == z->x) \
-		printf(REGFMT64, y->x); \
+		printf("0x%016" PRIx64, y->x); \
 		else \
 		printf(RED REGFMT64 RST, y->x); \
 	} while (0)
@@ -19,6 +19,17 @@
 		DUMPREG64(x, y, z); \
 		printf("%s", t);\
 	} while (0)
+
+#define PRINTSEG(h, x, y, z, t) \
+	do {\
+		if (y->x.selector == z->x.selector) \
+			_dump_seg(h, y->x, t); \
+		else { \
+			printf(RED); \
+			_dump_seg(h, y->x, t); \
+			printf(RST); \
+		} \
+	} while(0)
 
 #define DUMPREG32(x, y, z) \
 	do {\

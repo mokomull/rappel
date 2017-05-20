@@ -17,7 +17,7 @@ CFLAGS_ARCH  =-Ddisplay=display_$(BASE_ARCH) -Dgen_elf=gen_elf_$(BASE_ARCH) -Dpt
 
 CFLAGS_amd64 = -Dassemble=assemble_intel \
 		-DREGFMT=REGFMT64 -DARCH_INIT_PROC_INFO=AMD64_INIT_PROC_INFO 
-CFLAGS_amd64_llvm = $(CFLAGS_amd64)
+CFLAGS_amd64_llvm = $(CFLAGS_amd64) -g
 CFLAGS_x86   = -Dassemble=assemble_intel \
 		-DREGFMT=REGFMT32 -DARCH_INIT_PROC_INFO=X86_INIT_PROC_INFO \
 		-m32

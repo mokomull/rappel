@@ -111,19 +111,7 @@ bail:
 }
 
 static
-int _gen_vm(void **guest_ram) {
-	const int kvm_fd = open("/dev/kvm", O_RDWR);
-	REQUIRE(kvm_fd > 0);
-
-	const int api_version = ioctl(kvm_fd, KVM_GET_API_VERSION, 0);
-	REQUIRE(api_version == 12); /* specified in Documentation/virtual/kvm/api.txt */
-
-	const int vm_fd = ioctl(kvm_fd, KVM_CREATE_VM, 0);
-	REQUIRE(vm_fd > 0);
-
-	const int vcpu_fd = ioctl(vm_fd, KVM_CREATE_VCPU, 0);
-	REQUIRE(vcpu_fd > 0);
-
+void _reset_regs(int vcpu_fd) {
 	struct kvm_regs regs = {
 		.rip = 0x400000, /* TODO: options.start */
 		.rsp = 0x401000, /* TODO: anonymous memory */
@@ -161,6 +149,18 @@ int _gen_vm(void **guest_ram) {
 	};
 	sregs.ss = sregs.ds;
 	REQUIRE(ioctl(vcpu_fd, KVM_SET_SREGS, &sregs) == 0);
+}
+
+static
+int _gen_vm(void **guest_ram) {
+	const int kvm_fd = open("/dev/kvm", O_RDWR);
+	REQUIRE(kvm_fd > 0);
+
+	const int api_version = ioctl(kvm_fd, KVM_GET_API_VERSION, 0);
+	REQUIRE(api_version == 12); /* specified in Documentation/virtual/kvm/api.txt */
+
+	const int vm_fd = ioctl(kvm_fd, KVM_CREATE_VM, 0);
+	REQUIRE(vm_fd > 0);
 
 	/* map a scratch page (for executable code) to 0x400000 */
 	*guest_ram = mmap(0, 4096, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
@@ -194,13 +194,17 @@ int _gen_vm(void **guest_ram) {
 			[(0x400000ULL >> 12) & 0x1ff] = 0x400000 | 0x27,
 		},
 	};
-	/* TODO: this apparently page-faults (and then triple-faults) with cr2 = 0x400000 */
 	kumr.slot = 2;
 	kumr.flags = KVM_MEM_READONLY;
 	kumr.guest_phys_addr = 0x80000000;
 	kumr.userspace_addr = &page_tables;
 	kumr.memory_size = sizeof(page_tables);
 	REQUIRE(ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION, &kumr) == 0);
+
+	const int vcpu_fd = ioctl(vm_fd, KVM_CREATE_VCPU, 0);
+	REQUIRE(vcpu_fd > 0);
+
+	_reset_regs(vcpu_fd);
 
 	/* TODO: leaks kvm_fd, vm_fd */
 	return vcpu_fd;
@@ -299,6 +303,11 @@ void interact(
 			if (strcasestr(line, "end")) {
 				in_block = 0;
 				end = 1;
+			}
+
+			if (strcasestr(line, "reset")) {
+				_reset_regs(vcpu_fd);
+				continue;
 			}
 		}
 

@@ -54,6 +54,11 @@ void display_amd64(
 	PRINTREG64("r14: ", r14, regs, old_regs, "\t");
 	PRINTREG64("r15: ", r15, regs, old_regs, "\n");
 
+	PRINTREG64("cr0: ", cr0, sregs, old_sregs, "\t");
+	PRINTREG64("cr2: ", cr2, sregs, old_sregs, "\t");
+	PRINTREG64("cr3: ", cr3, sregs, old_sregs, "\t");
+	PRINTREG64("cr4: ", cr4, sregs, old_sregs, "\n");
+
 	if (options.allregs) {
 		PRINTSEG("cs : ", cs, sregs, old_sregs, "\n");
 		PRINTSEG("ss : ", ss, sregs, old_sregs, "\n");

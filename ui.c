@@ -363,6 +363,11 @@ void interact(
 					// handled.
 					uint64_t* data = (void*) run->mmio.data;
 					*data = run->mmio.phys_addr ^ 0xcccccccccccccccc;
+					// run the guest before re-running KVM_SET_REGS; that
+					// appears to be clearing the pending operation.
+					// TODO: This only runs the guest until the next exit for
+					// any reason.  Should probably loop on some condition, TBD
+					ioctl(vcpu_fd, KVM_RUN, 0);
 				}
 				break;
 			default:

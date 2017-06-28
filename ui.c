@@ -176,7 +176,7 @@ int _gen_vm(void **guest_ram) {
 	REQUIRE(ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION, &kumr) == 0);
 
 	/* page tables can go at 0x80000000 in the guest */
-	static const uint64_t __attribute__((aligned(4096))) page_tables[][512] = {
+	static uint64_t __attribute__((aligned(4096))) page_tables[][512] = {
 		/* PML4 */
 		{
 			[(0x400000ULL >> 39) & 0x1ff] = 0x80001000 | 0x27,
@@ -192,10 +192,13 @@ int _gen_vm(void **guest_ram) {
 		/* PT */
 		{
 			[(0x400000ULL >> 12) & 0x1ff] = 0x400000 | 0x27,
+
+			// make the PT for 0x400000 - 0x5ff000 accessible to the guest
+			[(0x401000ULL >> 12) & 0x1ff] = 0x80003000 | 0x27,
 		},
 	};
 	kumr.slot = 2;
-	kumr.flags = KVM_MEM_READONLY;
+	kumr.flags = 0;
 	kumr.guest_phys_addr = 0x80000000;
 	kumr.userspace_addr = &page_tables;
 	kumr.memory_size = sizeof(page_tables);
@@ -232,7 +235,7 @@ void interact(
 	void *guest_ram;
 	const int vcpu_fd = _gen_vm(&guest_ram);
 
-	struct kvm_run *run = mmap(0, 4096, PROT_READ, MAP_SHARED, vcpu_fd, 0);
+	struct kvm_run *run = mmap(0, 4096, PROT_READ|PROT_WRITE, MAP_SHARED, vcpu_fd, 0);
 	REQUIRE(run != MAP_FAILED);
 
 	if (options.verbose) help();
@@ -345,7 +348,24 @@ void interact(
 			ptrace_reset(vcpu_fd, options.start);
 
 			ioctl(vcpu_fd, KVM_RUN, 0);
-			if (run->exit_reason != KVM_EXIT_HLT) {
+			switch (run->exit_reason) {
+			case KVM_EXIT_HLT:
+				// This is our trap between iterations
+				break;
+			case KVM_EXIT_MMIO:
+				fprintf(stderr, "mmio %s of length %d for 0x%016x\n",
+					run->mmio.is_write ? "write" : "read",
+					run->mmio.len,
+					run->mmio.phys_addr);
+				if (!run->mmio.is_write) {
+					// A little something to indicate to
+					// the guest that the action was
+					// handled.
+					uint64_t* data = (void*) run->mmio.data;
+					*data = run->mmio.phys_addr ^ 0xcccccccccccccccc;
+				}
+				break;
+			default:
 				fprintf(stderr, "exited for reason %d, not HLT\n", run->exit_reason);
 			}
 			ptrace_collect_regs(vcpu_fd, &info);

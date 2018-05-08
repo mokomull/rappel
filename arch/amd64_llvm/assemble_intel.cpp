@@ -55,9 +55,9 @@ extern "C" {
 #include <llvm/MC/MCSection.h>
 #include <llvm/MC/MCSectionELF.h>
 #include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/MC/MCTargetAsmParser.h>
+#include <llvm/MC/MCParser/MCTargetAsmParser.h>
 #include <llvm/MC/MCTargetOptions.h>
-#include <llvm/Support/ELF.h>
+#include <llvm/BinaryFormat/ELF.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/SourceMgr.h>
@@ -127,8 +127,9 @@ size_t assemble(
 
 	llvm::SmallVector<char, 0> output;
 	llvm::raw_svector_ostream stream(output);
+	llvm::MCTargetOptions options;
 	llvm::MCAsmBackend* backend =
-		target->createMCAsmBackend(*reginfo, LLVM_HOST_TRIPLE, "");
+		target->createMCAsmBackend(*reginfo, LLVM_HOST_TRIPLE, "", options);
 	unique_ptr<llvm::MCInstrInfo> instrinfo(target->createMCInstrInfo());
 	llvm::MCCodeEmitter* emitter = target->createMCCodeEmitter(
 		*instrinfo,
@@ -152,7 +153,6 @@ size_t assemble(
 		*streamer,
 		*asminfo));
 
-	llvm::MCTargetOptions options;
 	unique_ptr<llvm::MCTargetAsmParser> targetasmparser(
 		target->createMCAsmParser(
 			*subtarget,
